@@ -16,7 +16,7 @@ from utils import timer
 
 def main() -> None:
     # Konfigurasi Path
-    input_file = Path("sample/Rekap_Jaga.xlsx")
+    input_file = Path("Rekap_Jaga.xlsx")
     output_file = Path("Jadwal_Final.xlsx")
 
     print("=" * 60)
