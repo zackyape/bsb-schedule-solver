@@ -1,74 +1,55 @@
 """
 generate_schedule.py
+Entry point for BSB Schedule Solver v2
 """
 
 from excel_io import ExcelIO
 from optimizer import ScheduleOptimizer
+from validator import ScheduleValidator
 from report import ReportGenerator
-from config import WEEKS
-
-
-def build_history(days):
-
-    history = {}
-
-    locked = []
-
-    for day in days:
-
-        for person in day.active:
-
-            history.setdefault(person, []).append(day.day)
-
-        for person, label in day.locked.items():
-
-            locked.append(
-                (
-                    person,
-                    day.day,
-                    label,
-                )
-            )
-
-    return history, locked
 
 
 def main():
+    print("=" * 60)
+    print("BSB Schedule Solver v2")
+    print("=" * 60)
 
     excel = ExcelIO()
+    workbook = excel.load()
 
-    days = excel.load_schedule()
+    optimizer = ScheduleOptimizer(workbook)
+    result = optimizer.solve()
 
-    history, locked = build_history(days)
-
-    solver = ScheduleOptimizer(
-        days=days,
-        history=history,
-        locked=locked,
-        weeks=WEEKS,
-    )
-
-    result = solver.solve()
-
-    if result is None:
-
-        print("Tidak ditemukan solusi.")
-
+    if not result.solved:
+        print("No feasible solution found.")
         return
 
-    excel.write_result(result)
+    validator = ScheduleValidator()
+    validation = validator.validate(workbook, result)
+
+    if validation.passed:
+        print("[OK] Validation passed.")
+    else:
+        print(f"[WARNING] Validation failed ({len(validation.issues)} issue(s)).")
+        for issue in validation.issues:
+            person = issue.person or "-"
+            day = issue.day if issue.day is not None else "-"
+            print(f"  - {issue.rule}: person={person}, day={day}, {issue.message}")
+
+    excel.save(result)
 
     report = ReportGenerator(
-        history,
-        result,
+        workbook=workbook,
+        result=result,
+        validation=validation,
     )
+    report.generate()
 
-    report.build()
-
-    print("=================================")
-    print("Schedule berhasil dibuat")
-    print("=================================")
+    print("Done.")
+    print("Excel exported.")
+    print("Reports generated.")
 
 
 if __name__ == "__main__":
     main()
+    
