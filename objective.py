@@ -1,26 +1,17 @@
 """
 objective.py
-
-Soft objective plugins
+Soft objective plugins for BSB Schedule Solver v2
 """
 
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
-from typing import List
-
 from ortools.sat.python import cp_model
 
 from config import calendar, objective
 from models import WorkbookData
 
 
-# ==========================================================
-# BASE CLASS
-# ==========================================================
-
 class Objective(ABC):
-
     name = "Objective"
 
     @abstractmethod
@@ -29,38 +20,90 @@ class Objective(ABC):
         model: cp_model.CpModel,
         variables: dict,
         workbook: WorkbookData,
-    ) -> List[cp_model.IntVar]:
+    ) -> list:
         ...
 
 
-# ==========================================================
-# WEEKLY C
-# ==========================================================
-
 class WeeklyCObjective(Objective):
+    name = "WeeklyC"
 
-    name = "Weekly C"
-
-    def build(
-        self,
-        model,
-        variables,
-        workbook,
-    ):
-
+    def build(self, model, variables, workbook):
         penalties = []
 
         for person in workbook.people.values():
-
             for week, days in calendar.weeks.items():
+                c_vars = [
+                    variables[(person.name, a.day, "C")]
+                    for a in person.assignments
+                    if a.day in days
+                ]
 
-                c_vars = []
+                if not c_vars:
+                    continue
 
-                for assign in person.assignments:
+                extra = model.NewIntVar(
+                    0,
+                    10,
+                    f"C_{person.name}_{week}",
+                )
 
-                    if assign.day in days:
+                model.Add(
+                    extra >= sum(c_vars) - objective.weekly_c_limit
+                )
 
-                        c_vars.append(
+                penalties.append(
+                    objective.weight_weekly_c * extra
+                )
 
-                            variables[
-                               
+        return penalties
+
+
+class BalanceObjective(Objective):
+    name = "Balance"
+
+    def build(self, model, variables, workbook):
+        penalties = []
+
+        for person in workbook.people.values():
+            total = len(person.assignments)
+            target = total // 3
+
+            for label in ("A", "B", "C"):
+
+                count = model.NewIntVar(
+                    0,
+                    total,
+                    f"{person.name}_{label}",
+                )
+
+                model.Add(
+                    count
+                    ==
+                    sum(
+                        variables[(person.name, a.day, label)]
+                        for a in person.assignments
+                    )
+                )
+
+                diff = model.NewIntVar(
+                    0,
+                    total,
+                    f"DIFF_{person.name}_{label}",
+                )
+
+                model.AddAbsEquality(
+                    diff,
+                    count - target,
+                )
+
+                penalties.append(
+                    objective.weight_balance * diff
+                )
+
+        return penalties
+
+
+DEFAULT_OBJECTIVES = [
+    WeeklyCObjective(),
+    BalanceObjective(),
+]
