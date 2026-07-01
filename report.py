@@ -74,4 +74,7 @@ class ReportGenerator:
 
         for week, days in WEEKS.items():
 
-            if
+            if day in days:
+                return week
+
+        return 0
