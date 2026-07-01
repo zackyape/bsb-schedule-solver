@@ -133,4 +133,94 @@ class ConstraintBuilder:
                        history,
                        week_map):
 
-       
+        penalties = []
+
+        for person, days in history.items():
+
+            for week, week_days in week_map.items():
+
+                vars_ = []
+
+                for day in days:
+
+                    if day in week_days:
+
+                        vars_.append(
+
+                            self.x[(person, day, "C")]
+
+                        )
+
+                if vars_:
+
+                    extra = self.model.NewIntVar(
+                        0,
+                        10,
+                        f"extra_{person}_{week}"
+                    )
+
+                    self.model.Add(
+
+                        extra
+
+                        >=
+
+                        sum(vars_) - 1
+
+                    )
+
+                    penalties.append(extra)
+
+        return penalties
+
+    # -------------------------------------------------------
+
+    def balance(self,
+                history):
+
+        penalties = []
+
+        for person, days in history.items():
+
+            total = len(days)
+
+            target = total // 3
+
+            for label in ("A", "B", "C"):
+
+                count = self.model.NewIntVar(
+                    0,
+                    total,
+                    f"{person}_{label}"
+                )
+
+                self.model.Add(
+
+                    count
+
+                    ==
+
+                    sum(
+
+                        self.x[(person, d, label)]
+
+                        for d in days
+
+                    )
+
+                )
+
+                diff = self.model.NewIntVar(
+                    0,
+                    total,
+                    f"diff_{person}_{label}"
+                )
+
+                self.model.AddAbsEquality(
+                    diff,
+                    count - target
+                )
+
+                penalties.append(diff)
+
+        return penalties
