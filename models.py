@@ -1,317 +1,135 @@
 """
-models.py
-
-Data models for BSB Schedule Solver V2.1
+Data models untuk BSB Schedule Solver.
+Hanya berisi Dataclass dan class penyimpan state (VariableStore).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import Optional
-
+from typing import Dict, List, Optional, Any
 from ortools.sat.python import cp_model
 
 
-# ==========================================================
-# ASSIGNMENT
-# ==========================================================
-
-@dataclass(slots=True)
-class Assignment:
-    """
-    One duty assignment.
-    """
-
-    day: int
-
-    label: Optional[str] = None
-
-    locked: bool = False
-
-
-# ==========================================================
-# PERSON
-# ==========================================================
-
-@dataclass(slots=True)
+@dataclass
 class Person:
-    """
-    One personnel.
-    """
-
+    """Representasi personel yang akan dijadwalkan."""
     name: str
-
-    row: int
-
-    assignments: list[Assignment] = field(
-        default_factory=list
-    )
-
-    def add_assignment(
-        self,
-        assignment: Assignment,
-    ) -> None:
-
-        self.assignments.append(
-            assignment
-        )
-
-    @property
-    def history(self) -> list[Assignment]:
-
-        return sorted(
-            self.assignments,
-            key=lambda x: x.day,
-        )
-
-    @property
-    def total_assignment(self) -> int:
-
-        return len(
-            self.assignments
-        )
+    is_ecom: bool = False
 
 
-# ==========================================================
-# DAY SCHEDULE
-# ==========================================================
-
-@dataclass(slots=True)
+@dataclass
 class DaySchedule:
-    """
-    Schedule for one day.
-    """
-
-    day: int
-
-    personnel: list[str] = field(
-        default_factory=list
-    )
-
-    locked: dict[str, str] = field(
-        default_factory=dict
-    )
-
-    empty: list[str] = field(
-        default_factory=list
-    )
-
-    def add_person(
-        self,
-        person: str,
-    ) -> None:
-
-        if person not in self.personnel:
-
-            self.personnel.append(
-                person
-            )
+    """Representasi hari dalam jadwal."""
+    day_index: int
+    date_str: str
 
 
-# ==========================================================
-# WORKBOOK
-# ==========================================================
+@dataclass
+class Assignment:
+    """Data sel dari template Excel."""
+    person_name: str
+    day_index: int
+    label: str  # Bisa '1', 'A', 'B', 'C', atau kosong
+    is_locked: bool
 
-@dataclass(slots=True)
+
+@dataclass
 class WorkbookData:
-    """
-    Parsed workbook.
-    """
-
-    people: dict[str, Person]
-
-    schedules: list[DaySchedule]
-
-    row_lookup: dict[str, int]
-
-    day_lookup: dict[int, int]
-
-    @property
-    def days(self) -> list[int]:
-
-        return [
-            schedule.day
-            for schedule in self.schedules
-        ]
-
-    @property
-    def total_people(self) -> int:
-
-        return len(
-            self.people
-        )
-
-    @property
-    def total_days(self) -> int:
-
-        return len(
-            self.schedules
-        )
+    """Struktur data representasi dari seluruh isi Excel."""
+    people: List[Person]
+    schedules: List[DaySchedule]
+    assignments: List[Assignment]
+    row_lookup: Dict[str, int] = field(default_factory=dict)
+    day_lookup: Dict[int, int] = field(default_factory=dict)
 
 
-# ==========================================================
-# VARIABLE STORE
-# ==========================================================
-
-@dataclass(slots=True)
 class VariableStore:
-    """
-    Store all CP-SAT variables.
-    """
+    """Penyimpanan dan antarmuka untuk variabel CP-SAT (BoolVar)."""
+    
+    def __init__(self, model: cp_model.CpModel):
+        self.model = model
+        # Struktur: _vars[person_name][day_index][label] = BoolVar
+        self._vars: Dict[str, Dict[int, Dict[str, cp_model.BoolVar]]] = {}
 
-    assignments: dict[
-        tuple[str, int, str],
-        cp_model.IntVar,
-    ] = field(default_factory=dict)
+    def create(self, person: str, day: int, label: str) -> cp_model.BoolVar:
+        """Membuat variabel boolean baru untuk solver."""
+        if person not in self._vars:
+            self._vars[person] = {}
+        if day not in self._vars[person]:
+            self._vars[person][day] = {}
+            
+        var_name = f"assign_{person}_day{day}_{label}"
+        var = self.model.NewBoolVar(var_name)
+        self._vars[person][day][label] = var
+        return var
 
-    def add(
-        self,
-        person: str,
-        day: int,
-        label: str,
-        variable: cp_model.IntVar,
-    ) -> None:
+    def get(self, person: str, day: int, label: str) -> Optional[cp_model.BoolVar]:
+        """Mengambil variabel boolean secara spesifik."""
+        return self._vars.get(person, {}).get(day, {}).get(label)
 
-        self.assignments[
-            (
-                person,
-                day,
-                label,
-            )
-        ] = variable
+    def labels(self, person: str, day: int) -> List[cp_model.BoolVar]:
+        """Mengambil seluruh variabel label (A, B, C) untuk satu orang di satu hari."""
+        day_vars = self._vars.get(person, {}).get(day, {})
+        return list(day_vars.values())
 
-    def get(
-        self,
-        person: str,
-        day: int,
-        label: str,
-    ) -> cp_model.IntVar:
+    def day_label(self, day: int, label: str) -> List[cp_model.BoolVar]:
+        """Mengambil seluruh variabel dari personel berbeda untuk hari dan label tertentu."""
+        result = []
+        for person, days in self._vars.items():
+            if day in days and label in days[day]:
+                result.append(days[day][label])
+        return result
 
-        return self.assignments[
-            (
-                person,
-                day,
-                label,
-            )
-        ]
-
-    def labels(
-        self,
-        person: str,
-        day: int,
-        labels: tuple[str, ...],
-    ) -> list[cp_model.IntVar]:
-
-        return [
-
-            self.get(
-                person,
-                day,
-                label,
-            )
-
-            for label in labels
-
-        ]
-
-    def people_by_label(
-        self,
-        people: list[str],
-        day: int,
-        label: str,
-    ) -> list[cp_model.IntVar]:
-
-        return [
-
-            self.get(
-                person,
-                day,
-                label,
-            )
-
-            for person in people
-
-        ]
+    def person_history(self, person: str, label: str) -> List[cp_model.BoolVar]:
+        """Mengambil riwayat variabel dari hari ke hari untuk satu orang dan satu label."""
+        result = []
+        person_days = self._vars.get(person, {})
+        # Sort berdasarkan day_index agar urut secara kronologis
+        for day in sorted(person_days.keys()):
+            if label in person_days[day]:
+                result.append(person_days[day][label])
+        return result
 
 
-# ==========================================================
-# SOLVER RESULT
-# ==========================================================
+# --- Model Hasil & Validasi ---
 
-@dataclass(slots=True)
+@dataclass
 class SolverResult:
-    """
-    Result returned by optimizer.
-    """
-
-    solved: bool
-
+    """Hasil akhir dari eksekusi CP-SAT."""
+    status: int
+    assignments: Dict[str, Dict[int, str]]  # person -> day -> label terisi
     objective_value: float
-
-    assignments: dict[
-        int,
-        dict[str, str],
-    ]
-
-    solver_status: str
+    solve_time_seconds: float
 
 
-# ==========================================================
-# VALIDATION
-# ==========================================================
-
-@dataclass(slots=True)
+@dataclass
 class ValidationIssue:
-
-    rule: str
-
-    person: Optional[str]
-
-    day: Optional[int]
-
-    message: str
-
-
-@dataclass(slots=True)
-class ValidationResult:
-
-    passed: bool
-
-    issues: list[
-        ValidationIssue
-    ] = field(
-        default_factory=list
-    )
-
-
-# ==========================================================
-# REPORT
-# ==========================================================
-
-@dataclass(slots=True)
-class PersonStatistic:
-
+    """Temuan isu saat memvalidasi jadwal."""
+    rule_name: str
     person: str
-
-    a: int = 0
-
-    b: int = 0
-
-    c: int = 0
-
-    weekly_c: dict[
-        int,
-        int,
-    ] = field(
-        default_factory=dict
-    )
+    day_index: int
+    description: str
 
 
-@dataclass(slots=True)
+@dataclass
+class ValidationResult:
+    """Kumpulan hasil validasi jadwal."""
+    is_valid: bool
+    issues: List[ValidationIssue]
+
+
+@dataclass
+class PersonStatistic:
+    """Statistik jumlah shift per personel."""
+    person_name: str
+    count_a: int = 0
+    count_b: int = 0
+    count_c: int = 0
+    total_shifts: int = 0
+
+
+@dataclass
 class ReportData:
-
-    statistics: list[
-        PersonStatistic
-    ]
-
+    """Data yang dikumpulkan untuk generate laporan akhir."""
+    solver_status: str
     validation: ValidationResult
+    statistics: List[PersonStatistic]
+    
