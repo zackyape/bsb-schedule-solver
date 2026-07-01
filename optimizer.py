@@ -45,4 +45,102 @@ class ScheduleOptimizer:
 
                 for label in LABELS:
 
-                    self.x[(person, day.day
+                    self.x[(person, day.day, label)] = (
+                        self.model.NewBoolVar(
+                            f"{person}_{day.day}_{label}"
+                        )
+                    )
+
+    # --------------------------------------------------
+
+    def solve(self):
+
+        builder = ConstraintBuilder(
+            self.model,
+            self.x
+        )
+
+        builder.daily_abc(
+            self.active_people
+        )
+
+        builder.locked_cells(
+            self.locked
+        )
+
+        builder.no_repeat(
+            self.history
+        )
+
+        builder.no_abab(
+            self.history
+        )
+
+        c_penalty = builder.weekly_c_limit(
+            self.history,
+            self.weeks
+        )
+
+        balance_penalty = builder.balance(
+            self.history
+        )
+
+        self.model.Minimize(
+
+            SOFT_WEIGHT_C
+            * sum(c_penalty)
+
+            +
+
+            SOFT_WEIGHT_BALANCE
+            * sum(balance_penalty)
+
+        )
+
+        solver = cp_model.CpSolver()
+
+        solver.parameters.max_time_in_seconds = (
+            MAX_SOLVER_TIME
+        )
+
+        solver.parameters.num_search_workers = (
+            NUM_WORKERS
+        )
+
+        status = solver.Solve(self.model)
+
+        if status not in (
+            cp_model.OPTIMAL,
+            cp_model.FEASIBLE,
+        ):
+            return None
+
+        result = {}
+
+        for day in self.days:
+
+            result[day.day] = {}
+
+            for person in day.active:
+
+                for label in LABELS:
+
+                    if solver.Value(
+
+                        self.x[
+                            (
+                                person,
+                                day.day,
+                                label,
+                            )
+                        ]
+
+                    ):
+
+                        result[
+                            day.day
+                        ][person] = label
+
+                        break
+
+        return result
