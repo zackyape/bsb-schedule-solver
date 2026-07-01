@@ -1,1 +1,6 @@
+# BSB Schedule Solver
 
+## Install
+
+```bash
+pip install -r requirements.txt
