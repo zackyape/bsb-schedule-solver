@@ -1,122 +1,22 @@
 """
-config.py
-Global configuration for BSB Schedule Solver
+Configuration settings for BSB Schedule Solver V2.1.
+Mengatur label, nilai sel, dan penalti untuk soft constraints.
 """
 
-from pathlib import Path
+# Tipe label tugas (Jaga Atas, Jaga Bawah, Jaga AA)
+LABELS = ["A", "B", "C"]
 
-# ==========================
-# FILES
-# ==========================
+# Penanda sel di Excel
+EMPTY_CELL_MARKER = "1"
+EXCLUDE_MARKER = ""  # Sel kosong berarti tidak jaga
 
-BASE_DIR = Path(__file__).resolve().parent
+# Parameter Soft Constraints (Penalty Weights)
+# Sesuaikan bobot ini untuk mengatur prioritas optimizer
+PENALTY_WEEKLY_C = 10         # Penalti jika C dalam seminggu tidak seimbang
+PENALTY_BALANCE = 5           # Penalti jika total shift antar personel jomplang
+PENALTY_SPREAD_C = 8          # Penalti jika jarak antar shift C terlalu dekat
+PENALTY_PREFERRED_PATTERN = 2 # Penalti untuk pola yang kurang ideal
 
-INPUT_FILE = BASE_DIR / "Rekap_Jaga_Gudang_BSB_Juli_2026.xlsx"
-OUTPUT_FILE = BASE_DIR / "Rekap_Jaga_Gudang_BSB_Juli_2026_Final.xlsx"
-REPORT_FILE = BASE_DIR / "report.txt"
-
-# ==========================
-# WORKBOOK
-# ==========================
-
-SHEET_NAME = "Rekap Jaga Juli 2026"
-
-# ==========================
-# PERSONNEL
-# ==========================
-
-PERSONNEL = [
-    "HENDRO",
-    "FARIKIN",
-    "GILANG",
-    "RISKY",
-    "ZAKI",
-    "YANUAR",
-]
-
-IGNORE_PERSONNEL = [
-    "ECOM"
-]
-
-# ==========================
-# ROWS
-# ==========================
-
-ROW_MAP = {
-    "HENDRO": 5,
-    "FARIKIN": 6,
-    "GILANG": 7,
-    "RISKY": 8,
-    "ZAKI": 9,
-    "YANUAR": 10,
-    "ECOM": 11,
-}
-
-# ==========================
-# DATE RANGE
-# ==========================
-
-FIRST_DAY_COLUMN = 2
-LAST_DAY_COLUMN = 32
-
-TOTAL_DAYS = 31
-
-# ==========================
-# LABELS
-# ==========================
-
-LABELS = [
-    "A",
-    "B",
-    "C",
-]
-
-# ==========================
-# CALENDAR WEEKS
-# ==========================
-
-WEEKS = {
-    1: range(1, 6),
-    2: range(6, 13),
-    3: range(13, 20),
-    4: range(20, 27),
-    5: range(27, 32),
-}
-
-# ==========================
-# SOLVER
-# ==========================
-
-MAX_SOLVER_TIME = 300
-
-NUM_WORKERS = 8
-
-# ==========================
-# HARD CONSTRAINTS
-# ==========================
-
-ENABLE_DAILY_ABC = True
-ENABLE_NO_REPEAT = True
-ENABLE_NO_ABAB = True
-
-# ==========================
-# SOFT CONSTRAINTS
-# ==========================
-
-MAX_C_PER_WEEK = 1
-
-SOFT_WEIGHT_C = 100
-SOFT_WEIGHT_BALANCE = 20
-
-# ==========================
-# EXPORT
-# ==========================
-
-EXPORT_REPORT = True
-EXPORT_STATISTICS = True
-
-# ==========================
-# DEBUG
-# ==========================
-
-DEBUG = False
+# Konfigurasi Excel
+HEADER_ROW_INDEX = 1
+START_COLUMN_INDEX = 2  # Kolom B dst untuk hari

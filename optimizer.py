@@ -1,146 +1,112 @@
 """
-optimizer.py
+Optimizer Module untuk BSB Schedule Solver V2.1.
+Mengelola pembuatan variabel, penerapan aturan (rules), fungsi objektif,
+dan eksekusi solver Google OR-Tools CP-SAT.
 """
 
+import time
 from ortools.sat.python import cp_model
 
-from constraints import ConstraintBuilder
-from config import (
-    LABELS,
-    MAX_SOLVER_TIME,
-    NUM_WORKERS,
-    SOFT_WEIGHT_C,
-    SOFT_WEIGHT_BALANCE,
+from config import LABELS
+from models import WorkbookData, VariableStore, SolverResult
+from rules import (
+    LockedRule, OneLabelRule, DailyABCRule, NoRepeatRule, NoABABRule,
+    WeeklyCRule, BalanceRule, SpreadCRule
 )
+from utils import timer
 
 
 class ScheduleOptimizer:
+    """Kelas utama untuk menjalankan CP-SAT Optimizer."""
 
-    def __init__(self, days, history, locked, weeks):
+    def __init__(self, data: WorkbookData, max_time_seconds: float = 60.0):
+        """
+        Inisialisasi Optimizer.
 
-        self.days = days
-        self.history = history
-        self.locked = locked
-        self.weeks = weeks
-
+        Args:
+            data (WorkbookData): Data lengkap yang telah diekstrak dari Excel.
+            max_time_seconds (float): Batas maksimal waktu pencarian (dalam detik).
+        """
+        self.data = data
+        self.max_time_seconds = max_time_seconds
         self.model = cp_model.CpModel()
+        self.store = VariableStore(self.model)
 
-        self.x = {}
+    def solve(self) -> SolverResult:
+        """
+        Alur utama optimasi penjadwalan sesuai workflow SDD:
+        Create Variables -> Apply Rules -> Collect Penalty -> Minimize -> Solve -> Return Result
+        """
+        start_time = time.perf_counter()
 
-        self.active_people = {}
+        with timer("Create Variables"):
+            self._create_variables()
 
-        self._build_variables()
+        with timer("Apply Hard Rules"):
+            self._apply_hard_rules()
 
-    # --------------------------------------------------
+        with timer("Apply Soft Rules & Collect Penalty"):
+            self._apply_soft_rules_and_minimize()
 
-    def _build_variables(self):
+        with timer("Solve CP-SAT Model"):
+            solver = cp_model.CpSolver()
+            
+            # Konfigurasi parameter solver
+            solver.parameters.max_time_in_seconds = self.max_time_seconds
+            solver.parameters.log_search_progress = True 
+            solver.parameters.num_search_workers = 8  # Manfaatkan multi-core CPU
 
-        for day in self.days:
+            status = solver.Solve(self.model)
 
-            people = day.active
+        solve_time_seconds = time.perf_counter() - start_time
 
-            self.active_people[day.day] = people
+        # Ekstrak hasil jika solver menemukan solusi (Optimal atau Feasible)
+        assignments = {}
+        objective_val = 0.0
 
-            for person in people:
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            objective_val = solver.ObjectiveValue()
+            for person in self.data.people:
+                assignments[person.name] = {}
+                for day in self.data.schedules:
+                    # Cari label (A/B/C) yang bernilai 1 (True) di hasil solver
+                    for label in LABELS:
+                        var = self.store.get(person.name, day.day_index, label)
+                        if var is not None and solver.Value(var) == 1:
+                            assignments[person.name][day.day_index] = label
+                            break  # Berhenti mencari label lain berkat OneLabelRule
 
+        return SolverResult(
+            status=status,
+            assignments=assignments,
+            objective_value=objective_val,
+            solve_time_seconds=solve_time_seconds
+        )
+
+    def _create_variables(self) -> None:
+        """Membuat seluruh variabel boolean ruang pencarian (Person x Day x Label)."""
+        for person in self.data.people:
+            for day in self.data.schedules:
                 for label in LABELS:
+                    self.store.create(person.name, day.day_index, label)
 
-                    self.x[(person, day.day, label)] = (
-                        self.model.NewBoolVar(
-                            f"{person}_{day.day}_{label}"
-                        )
-                    )
+    def _apply_hard_rules(self) -> None:
+        """Menerapkan batasan operasional yang wajib dipenuhi (Hard Constraints)."""
+        LockedRule.apply(self.model, self.store, self.data)
+        OneLabelRule.apply(self.model, self.store, self.data)
+        DailyABCRule.apply(self.model, self.store, self.data)
+        NoRepeatRule.apply(self.model, self.store, self.data)
+        NoABABRule.apply(self.model, self.store, self.data)
 
-    # --------------------------------------------------
-
-    def solve(self):
-
-        builder = ConstraintBuilder(
-            self.model,
-            self.x
-        )
-
-        builder.daily_abc(
-            self.active_people
-        )
-
-        builder.locked_cells(
-            self.locked
-        )
-
-        builder.no_repeat(
-            self.history
-        )
-
-        builder.no_abab(
-            self.history
-        )
-
-        c_penalty = builder.weekly_c_limit(
-            self.history,
-            self.weeks
-        )
-
-        balance_penalty = builder.balance(
-            self.history
-        )
-
-        self.model.Minimize(
-
-            SOFT_WEIGHT_C
-            * sum(c_penalty)
-
-            +
-
-            SOFT_WEIGHT_BALANCE
-            * sum(balance_penalty)
-
-        )
-
-        solver = cp_model.CpSolver()
-
-        solver.parameters.max_time_in_seconds = (
-            MAX_SOLVER_TIME
-        )
-
-        solver.parameters.num_search_workers = (
-            NUM_WORKERS
-        )
-
-        status = solver.Solve(self.model)
-
-        if status not in (
-            cp_model.OPTIMAL,
-            cp_model.FEASIBLE,
-        ):
-            return None
-
-        result = {}
-
-        for day in self.days:
-
-            result[day.day] = {}
-
-            for person in day.active:
-
-                for label in LABELS:
-
-                    if solver.Value(
-
-                        self.x[
-                            (
-                                person,
-                                day.day,
-                                label,
-                            )
-                        ]
-
-                    ):
-
-                        result[
-                            day.day
-                        ][person] = label
-
-                        break
-
-        return result
+    def _apply_soft_rules_and_minimize(self) -> None:
+        """Menerapkan batasan prioritas dan menekan akumulasi penalti serendah mungkin."""
+        penalties = []
+        
+        penalties.extend(WeeklyCRule.apply(self.model, self.store, self.data))
+        penalties.extend(BalanceRule.apply(self.model, self.store, self.data))
+        penalties.extend(SpreadCRule.apply(self.model, self.store, self.data))
+        
+        if penalties:
+            # Menginstruksikan solver mencari solusi dengan nilai penalti terkecil
+            self.model.Minimize(sum(penalties))
+          
