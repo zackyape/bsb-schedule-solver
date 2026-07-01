@@ -3,7 +3,7 @@ Report Module untuk BSB Schedule Solver V2.1.
 Mengolah hasil solver dan validasi menjadi output laporan.
 """
 
-from models import SolverResult, ValidationResult, ReportData, PersonStatistic
+from models import SolverResult, ValidationResult, ReportData, PersonStatistic, WorkbookData
 import pandas as pd
 
 class ReportGenerator:
@@ -23,10 +23,11 @@ class ReportGenerator:
                 total_shifts=len(p_assignments)
             ))
         
-        # Simpan ke file
+        # Simpan ke file excel
         df = pd.DataFrame([vars(s) for s in stats])
         df.to_excel("statistics.xlsx", index=False)
         
+        # Simpan summary ke txt
         with open("report.txt", "w") as f:
             f.write(f"Solver Status: {result.status}\n")
             f.write(f"Objective Value: {result.objective_value}\n")
