@@ -1,7 +1,7 @@
 """
 models.py
 
-Data models for BSB Schedule Solver.
+Data models for BSB Schedule Solver V2.1
 """
 
 from __future__ import annotations
@@ -9,10 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ortools.sat.python import cp_model
 
-# ============================================================
-# Assignment
-# ============================================================
+
+# ==========================================================
+# ASSIGNMENT
+# ==========================================================
 
 @dataclass(slots=True)
 class Assignment:
@@ -27,9 +29,9 @@ class Assignment:
     locked: bool = False
 
 
-# ============================================================
-# Person
-# ============================================================
+# ==========================================================
+# PERSON
+# ==========================================================
 
 @dataclass(slots=True)
 class Person:
@@ -55,6 +57,14 @@ class Person:
         )
 
     @property
+    def history(self) -> list[Assignment]:
+
+        return sorted(
+            self.assignments,
+            key=lambda x: x.day,
+        )
+
+    @property
     def total_assignment(self) -> int:
 
         return len(
@@ -62,14 +72,14 @@ class Person:
         )
 
 
-# ============================================================
-# DaySchedule
-# ============================================================
+# ==========================================================
+# DAY SCHEDULE
+# ==========================================================
 
 @dataclass(slots=True)
 class DaySchedule:
     """
-    Schedule of one day.
+    Schedule for one day.
     """
 
     day: int
@@ -88,26 +98,19 @@ class DaySchedule:
 
     def add_person(
         self,
-        name: str,
+        person: str,
     ) -> None:
 
-        if name not in self.personnel:
+        if person not in self.personnel:
 
             self.personnel.append(
-                name
+                person
             )
 
-    @property
-    def total_personnel(self) -> int:
 
-        return len(
-            self.personnel
-        )
-
-
-# ============================================================
-# WorkbookData
-# ============================================================
+# ==========================================================
+# WORKBOOK
+# ==========================================================
 
 @dataclass(slots=True)
 class WorkbookData:
@@ -118,6 +121,18 @@ class WorkbookData:
     people: dict[str, Person]
 
     schedules: list[DaySchedule]
+
+    row_lookup: dict[str, int]
+
+    day_lookup: dict[int, int]
+
+    @property
+    def days(self) -> list[int]:
+
+        return [
+            schedule.day
+            for schedule in self.schedules
+        ]
 
     @property
     def total_people(self) -> int:
@@ -134,39 +149,125 @@ class WorkbookData:
         )
 
 
-# ============================================================
-# SolverResult
-# ============================================================
+# ==========================================================
+# VARIABLE STORE
+# ==========================================================
+
+@dataclass(slots=True)
+class VariableStore:
+    """
+    Store all CP-SAT variables.
+    """
+
+    assignments: dict[
+        tuple[str, int, str],
+        cp_model.IntVar,
+    ] = field(default_factory=dict)
+
+    def add(
+        self,
+        person: str,
+        day: int,
+        label: str,
+        variable: cp_model.IntVar,
+    ) -> None:
+
+        self.assignments[
+            (
+                person,
+                day,
+                label,
+            )
+        ] = variable
+
+    def get(
+        self,
+        person: str,
+        day: int,
+        label: str,
+    ) -> cp_model.IntVar:
+
+        return self.assignments[
+            (
+                person,
+                day,
+                label,
+            )
+        ]
+
+    def labels(
+        self,
+        person: str,
+        day: int,
+        labels: tuple[str, ...],
+    ) -> list[cp_model.IntVar]:
+
+        return [
+
+            self.get(
+                person,
+                day,
+                label,
+            )
+
+            for label in labels
+
+        ]
+
+    def people_by_label(
+        self,
+        people: list[str],
+        day: int,
+        label: str,
+    ) -> list[cp_model.IntVar]:
+
+        return [
+
+            self.get(
+                person,
+                day,
+                label,
+            )
+
+            for person in people
+
+        ]
+
+
+# ==========================================================
+# SOLVER RESULT
+# ==========================================================
 
 @dataclass(slots=True)
 class SolverResult:
     """
-    Solver output.
+    Result returned by optimizer.
     """
 
     solved: bool
 
-    objective: float
+    objective_value: float
 
-    assignments: dict[int, dict[str, str]]
+    assignments: dict[
+        int,
+        dict[str, str],
+    ]
 
-    row_lookup: dict[str, int]
-
-    solver_status: str = ""
+    solver_status: str
 
 
-# ============================================================
-# Validation
-# ============================================================
+# ==========================================================
+# VALIDATION
+# ==========================================================
 
 @dataclass(slots=True)
 class ValidationIssue:
 
     rule: str
 
-    person: str | None
+    person: Optional[str]
 
-    day: int | None
+    day: Optional[int]
 
     message: str
 
@@ -176,21 +277,16 @@ class ValidationResult:
 
     passed: bool
 
-    issues: list[ValidationIssue] = field(
+    issues: list[
+        ValidationIssue
+    ] = field(
         default_factory=list
     )
 
-    @property
-    def total_issue(self) -> int:
 
-        return len(
-            self.issues
-        )
-
-
-# ============================================================
-# Statistics
-# ============================================================
+# ==========================================================
+# REPORT
+# ==========================================================
 
 @dataclass(slots=True)
 class PersonStatistic:
@@ -203,19 +299,19 @@ class PersonStatistic:
 
     c: int = 0
 
-    weekly_c: dict[int, int] = field(
+    weekly_c: dict[
+        int,
+        int,
+    ] = field(
         default_factory=dict
     )
-
-    @property
-    def total(self) -> int:
-
-        return self.a + self.b + self.c
 
 
 @dataclass(slots=True)
 class ReportData:
 
-    statistics: list[PersonStatistic]
+    statistics: list[
+        PersonStatistic
+    ]
 
     validation: ValidationResult
