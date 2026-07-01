@@ -1,146 +1,95 @@
 """
 optimizer.py
+CP-SAT optimizer
 """
-
 from ortools.sat.python import cp_model
 
-from constraints import ConstraintBuilder
-from config import (
-    LABELS,
-    MAX_SOLVER_TIME,
-    NUM_WORKERS,
-    SOFT_WEIGHT_C,
-    SOFT_WEIGHT_BALANCE,
-)
+from config import LABELS, solver
+from constraints import DEFAULT_CONSTRAINTS
+from objective import DEFAULT_OBJECTIVES
+from models import SolverResult
 
 
 class ScheduleOptimizer:
 
-    def __init__(self, days, history, locked, weeks):
-
-        self.days = days
-        self.history = history
-        self.locked = locked
-        self.weeks = weeks
-
+    def __init__(self, workbook):
+        self.workbook = workbook
         self.model = cp_model.CpModel()
-
-        self.x = {}
-
-        self.active_people = {}
-
-        self._build_variables()
-
-    # --------------------------------------------------
+        self.variables = {}
 
     def _build_variables(self):
-
-        for day in self.days:
-
-            people = day.active
-
-            self.active_people[day.day] = people
-
-            for person in people:
-
+        for day in self.workbook.days:
+            for person in day.personnel:
                 for label in LABELS:
-
-                    self.x[(person, day.day, label)] = (
+                    self.variables[(person, day.day, label)] = (
                         self.model.NewBoolVar(
                             f"{person}_{day.day}_{label}"
                         )
                     )
 
-    # --------------------------------------------------
-
     def solve(self):
+        self._build_variables()
 
-        builder = ConstraintBuilder(
-            self.model,
-            self.x
-        )
+        for c in DEFAULT_CONSTRAINTS:
+            c.apply(
+                self.model,
+                self.variables,
+                self.workbook,
+            )
 
-        builder.daily_abc(
-            self.active_people
-        )
+        penalties = []
 
-        builder.locked_cells(
-            self.locked
-        )
+        for obj in DEFAULT_OBJECTIVES:
+            penalties.extend(
+                obj.build(
+                    self.model,
+                    self.variables,
+                    self.workbook,
+                )
+            )
 
-        builder.no_repeat(
-            self.history
-        )
+        if penalties:
+            self.model.Minimize(sum(penalties))
 
-        builder.no_abab(
-            self.history
-        )
+        cp = cp_model.CpSolver()
+        cp.parameters.max_time_in_seconds = solver.max_solver_time
+        cp.parameters.num_search_workers = solver.num_workers
+        cp.parameters.random_seed = solver.random_seed
+        cp.parameters.log_search_progress = solver.log_search_progress
 
-        c_penalty = builder.weekly_c_limit(
-            self.history,
-            self.weeks
-        )
-
-        balance_penalty = builder.balance(
-            self.history
-        )
-
-        self.model.Minimize(
-
-            SOFT_WEIGHT_C
-            * sum(c_penalty)
-
-            +
-
-            SOFT_WEIGHT_BALANCE
-            * sum(balance_penalty)
-
-        )
-
-        solver = cp_model.CpSolver()
-
-        solver.parameters.max_time_in_seconds = (
-            MAX_SOLVER_TIME
-        )
-
-        solver.parameters.num_search_workers = (
-            NUM_WORKERS
-        )
-
-        status = solver.Solve(self.model)
+        status = cp.Solve(self.model)
 
         if status not in (
             cp_model.OPTIMAL,
             cp_model.FEASIBLE,
         ):
-            return None
+            return SolverResult(
+                solved=False,
+                objective_value=0,
+                assignments={},
+                row_lookup={},
+            )
 
-        result = {}
+        assignments = {}
+        rows = {}
 
-        for day in self.days:
+        for person in self.workbook.people.values():
+            rows[person.name] = person.row
 
-            result[day.day] = {}
-
-            for person in day.active:
-
+        for day in self.workbook.days:
+            assignments[day.day] = {}
+            for person in day.personnel:
                 for label in LABELS:
-
-                    if solver.Value(
-
-                        self.x[
-                            (
-                                person,
-                                day.day,
-                                label,
-                            )
-                        ]
-
+                    if cp.Value(
+                        self.variables[(person, day.day, label)]
                     ):
-
-                        result[
-                            day.day
-                        ][person] = label
-
+                        assignments[day.day][person] = label
                         break
 
-        return result
+        return SolverResult(
+            solved=True,
+            objective_value=cp.ObjectiveValue(),
+            assignments=assignments,
+            row_lookup=rows,
+        )
+        
