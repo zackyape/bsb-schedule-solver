@@ -1,226 +1,251 @@
 """
 constraints.py
-Constraint builder for BSB Schedule Solver
+
+Hard constraint plugins for BSB Schedule Solver v2
 """
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Dict, List
 
 from ortools.sat.python import cp_model
 
+from models import WorkbookData
 
-class ConstraintBuilder:
 
-    def __init__(self, model, variables):
-        self.model = model
-        self.x = variables
+# ==========================================================
+# BASE CLASS
+# ==========================================================
 
-    # -------------------------------------------------------
-    # Every day must contain exactly:
-    # A
-    # B
-    # C
-    # -------------------------------------------------------
+class Constraint(ABC):
 
-    def daily_abc(self, active_people):
+    name: str = "Constraint"
 
-        for day, people in active_people.items():
+    @abstractmethod
+    def apply(
+        self,
+        model: cp_model.CpModel,
+        variables: dict,
+        workbook: WorkbookData,
+    ) -> None:
+        pass
+
+
+# ==========================================================
+# DAILY ABC
+# ==========================================================
+
+class DailyABCConstraint(Constraint):
+
+    name = "DailyABC"
+
+    def apply(
+        self,
+        model,
+        variables,
+        workbook,
+    ):
+
+        for day in workbook.days:
+
+            people = day.personnel
 
             for label in ("A", "B", "C"):
 
-                self.model.Add(
+                model.Add(
+
                     sum(
-                        self.x[(person, day, label)]
-                        for person in people
+
+                        variables[(p, day.day, label)]
+
+                        for p in people
+
                     ) == 1
+
                 )
 
             for person in people:
 
-                self.model.Add(
+                model.Add(
+
                     sum(
-                        self.x[(person, day, l)]
+
+                        variables[
+                            (person, day.day, l)
+                        ]
+
                         for l in ("A", "B", "C")
+
                     ) == 1
+
                 )
 
-    # -------------------------------------------------------
 
-    def locked_cells(self, locked):
+# ==========================================================
+# LOCKED CELL
+# ==========================================================
 
-        for person, day, label in locked:
+class LockedConstraint(Constraint):
 
-            self.model.Add(
-                self.x[(person, day, label)] == 1
+    name = "Locked"
+
+    def apply(
+        self,
+        model,
+        variables,
+        workbook,
+    ):
+
+        for day in workbook.days:
+
+            for person, label in day.locked.items():
+
+                model.Add(
+
+                    variables[
+                        (person, day.day, label)
+                    ]
+
+                    == 1
+
+                )
+
+
+# ==========================================================
+# NO REPEAT
+# ==========================================================
+
+class NoRepeatConstraint(Constraint):
+
+    name = "NoRepeat"
+
+    def apply(
+        self,
+        model,
+        variables,
+        workbook,
+    ):
+
+        for person in workbook.people.values():
+
+            assigns = sorted(
+                person.assignments,
+                key=lambda a: a.day,
             )
 
-    # -------------------------------------------------------
+            for i in range(len(assigns) - 1):
 
-    def no_repeat(self, history):
-
-        for person, days in history.items():
-
-            for i in range(len(days) - 1):
-
-                d1 = days[i]
-                d2 = days[i + 1]
+                d1 = assigns[i].day
+                d2 = assigns[i + 1].day
 
                 for label in ("A", "B", "C"):
 
-                    self.model.Add(
+                    model.Add(
 
-                        self.x[(person, d1, label)]
+                        variables[
+                            (person.name, d1, label)
+                        ]
 
                         +
 
-                        self.x[(person, d2, label)]
+                        variables[
+                            (person.name, d2, label)
+                        ]
 
                         <= 1
 
                     )
 
-    # -------------------------------------------------------
 
-    def no_abab(self, history):
+# ==========================================================
+# NO ABAB
+# ==========================================================
 
-        bad_patterns = [
+class NoABABConstraint(Constraint):
 
-            ("A", "B"),
-            ("B", "A"),
+    BAD = [
 
-            ("A", "C"),
-            ("C", "A"),
+        ("A", "B"),
+        ("B", "A"),
 
-            ("B", "C"),
-            ("C", "B"),
+        ("A", "C"),
+        ("C", "A"),
 
-        ]
+        ("B", "C"),
+        ("C", "B"),
 
-        for person, days in history.items():
+    ]
 
-            for i in range(len(days) - 3):
+    name = "NoABAB"
 
-                d1 = days[i]
-                d2 = days[i + 1]
-                d3 = days[i + 2]
-                d4 = days[i + 3]
+    def apply(
+        self,
+        model,
+        variables,
+        workbook,
+    ):
 
-                for a, b in bad_patterns:
+        for person in workbook.people.values():
 
-                    self.model.Add(
+            assigns = sorted(
+                person.assignments,
+                key=lambda a: a.day,
+            )
 
-                        self.x[(person, d1, a)]
+            if len(assigns) < 4:
+                continue
+
+            for i in range(len(assigns) - 3):
+
+                d1 = assigns[i].day
+                d2 = assigns[i + 1].day
+                d3 = assigns[i + 2].day
+                d4 = assigns[i + 3].day
+
+                for a, b in self.BAD:
+
+                    model.Add(
+
+                        variables[
+                            (person.name, d1, a)
+                        ]
 
                         +
 
-                        self.x[(person, d2, b)]
+                        variables[
+                            (person.name, d2, b)
+                        ]
 
                         +
 
-                        self.x[(person, d3, a)]
+                        variables[
+                            (person.name, d3, a)
+                        ]
 
                         +
 
-                        self.x[(person, d4, b)]
+                        variables[
+                            (person.name, d4, b)
+                        ]
 
                         <= 3
 
                     )
 
-    # -------------------------------------------------------
-    # Soft constraint
-    # max 1 C each week
-    # -------------------------------------------------------
 
-    def weekly_c_limit(self,
-                       history,
-                       week_map):
+# ==========================================================
+# REGISTRY
+# ==========================================================
 
-        penalties = []
+DEFAULT_CONSTRAINTS: List[Constraint] = [
 
-        for person, days in history.items():
+    DailyABCConstraint(),
 
-            for week, week_days in week_map.items():
+    LockedConstraint(),
 
-                vars_ = []
+    NoRepeatConstraint(),
 
-                for day in days:
+    NoABABConstraint(),
 
-                    if day in week_days:
-
-                        vars_.append(
-
-                            self.x[(person, day, "C")]
-
-                        )
-
-                if vars_:
-
-                    extra = self.model.NewIntVar(
-                        0,
-                        10,
-                        f"extra_{person}_{week}"
-                    )
-
-                    self.model.Add(
-
-                        extra
-
-                        >=
-
-                        sum(vars_) - 1
-
-                    )
-
-                    penalties.append(extra)
-
-        return penalties
-
-    # -------------------------------------------------------
-
-    def balance(self,
-                history):
-
-        penalties = []
-
-        for person, days in history.items():
-
-            total = len(days)
-
-            target = total // 3
-
-            for label in ("A", "B", "C"):
-
-                count = self.model.NewIntVar(
-                    0,
-                    total,
-                    f"{person}_{label}"
-                )
-
-                self.model.Add(
-
-                    count
-
-                    ==
-
-                    sum(
-
-                        self.x[(person, d, label)]
-
-                        for d in days
-
-                    )
-
-                )
-
-                diff = self.model.NewIntVar(
-                    0,
-                    total,
-                    f"diff_{person}_{label}"
-                )
-
-                self.model.AddAbsEquality(
-                    diff,
-                    count - target
-                )
-
-                penalties.append(diff)
-
-        return penalties
+]
