@@ -1,46 +1,36 @@
 """
-report.py
-Generate TXT and CSV reports.
+Report Module untuk BSB Schedule Solver V2.1.
+Mengolah hasil solver dan validasi menjadi output laporan.
 """
-from collections import defaultdict
-import csv
-from config import REPORT_TXT, REPORT_CSV, LABELS, calendar
+
+from models import SolverResult, ValidationResult, ReportData, PersonStatistic
+import pandas as pd
 
 class ReportGenerator:
-    def __init__(self, workbook, result, validation):
-        self.workbook=workbook
-        self.result=result
-        self.validation=validation
+    """Mengenerate file txt, csv, dan excel summary."""
 
-    def generate(self):
-        stats=defaultdict(lambda: defaultdict(int))
-        weekly=defaultdict(lambda: defaultdict(int))
-
-        for day,assign in self.result.assignments.items():
-            week=next((w for w,r in calendar.weeks.items() if day in r),0)
-            for person,label in assign.items():
-                stats[person][label]+=1
-                if label=="C":
-                    weekly[person][week]+=1
-
-        with open(REPORT_TXT,"w",encoding="utf-8") as f:
-            f.write("BSB SCHEDULE REPORT\n\n")
-            f.write(f"Validation: {'PASS' if self.validation.passed else 'FAIL'}\n\n")
-            for p in sorted(stats):
-                f.write(f"{p}\n")
-                for l in LABELS:
-                    f.write(f"  {l}: {stats[p][l]}\n")
-                for w in sorted(calendar.weeks):
-                    f.write(f"  Week {w} C: {weekly[p][w]}\n")
-                f.write("\n")
-            if self.validation.issues:
-                f.write("Issues:\n")
-                for i in self.validation.issues:
-                    f.write(f"- {i.rule}: {i.message}\n")
-
-        with open(REPORT_CSV,"w",newline="",encoding="utf-8") as f:
-            writer=csv.writer(f)
-            writer.writerow(["Person","A","B","C"])
-            for p in sorted(stats):
-                writer.writerow([p,stats[p]["A"],stats[p]["B"],stats[p]["C"]])
-              
+    @staticmethod
+    def generate(result: SolverResult, validation: ValidationResult, data: WorkbookData) -> ReportData:
+        # Hitung statistik
+        stats = []
+        for person in data.people:
+            p_assignments = result.assignments.get(person.name, {})
+            stats.append(PersonStatistic(
+                person_name=person.name,
+                count_a=list(p_assignments.values()).count("A"),
+                count_b=list(p_assignments.values()).count("B"),
+                count_c=list(p_assignments.values()).count("C"),
+                total_shifts=len(p_assignments)
+            ))
+        
+        # Simpan ke file
+        df = pd.DataFrame([vars(s) for s in stats])
+        df.to_excel("statistics.xlsx", index=False)
+        
+        with open("report.txt", "w") as f:
+            f.write(f"Solver Status: {result.status}\n")
+            f.write(f"Objective Value: {result.objective_value}\n")
+            f.write(f"Validation: {'PASSED' if validation.is_valid else 'FAILED'}\n")
+            
+        return ReportData(str(result.status), validation, stats)
+        
