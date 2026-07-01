@@ -42,14 +42,14 @@ class WorkbookData:
 
 
 class VariableStore:
-    """Penyimpanan dan antarmuka untuk variabel CP-SAT (BoolVar)."""
+    """Penyimpanan dan antarmuka untuk variabel CP-SAT (menggunakan IntVar)."""
     
     def __init__(self, model: cp_model.CpModel):
         self.model = model
-        # Struktur: _vars[person_name][day_index][label] = BoolVar
-        self._vars: Dict[str, Dict[int, Dict[str, cp_model.BoolVar]]] = {}
+        # Struktur: _vars[person_name][day_index][label] = IntVar
+        self._vars: Dict[str, Dict[int, Dict[str, cp_model.IntVar]]] = {}
 
-    def create(self, person: str, day: int, label: str) -> cp_model.BoolVar:
+    def create(self, person: str, day: int, label: str) -> cp_model.IntVar:
         """Membuat variabel boolean baru untuk solver."""
         if person not in self._vars:
             self._vars[person] = {}
@@ -57,20 +57,21 @@ class VariableStore:
             self._vars[person][day] = {}
             
         var_name = f"assign_{person}_day{day}_{label}"
+        # NewBoolVar tetap digunakan untuk membuat variabelnya
         var = self.model.NewBoolVar(var_name)
         self._vars[person][day][label] = var
         return var
 
-    def get(self, person: str, day: int, label: str) -> Optional[cp_model.BoolVar]:
+    def get(self, person: str, day: int, label: str) -> Optional[cp_model.IntVar]:
         """Mengambil variabel boolean secara spesifik."""
         return self._vars.get(person, {}).get(day, {}).get(label)
 
-    def labels(self, person: str, day: int) -> List[cp_model.BoolVar]:
+    def labels(self, person: str, day: int) -> List[cp_model.IntVar]:
         """Mengambil seluruh variabel label (A, B, C) untuk satu orang di satu hari."""
         day_vars = self._vars.get(person, {}).get(day, {})
         return list(day_vars.values())
 
-    def day_label(self, day: int, label: str) -> List[cp_model.BoolVar]:
+    def day_label(self, day: int, label: str) -> List[cp_model.IntVar]:
         """Mengambil seluruh variabel dari personel berbeda untuk hari dan label tertentu."""
         result = []
         for person, days in self._vars.items():
@@ -78,7 +79,7 @@ class VariableStore:
                 result.append(days[day][label])
         return result
 
-    def person_history(self, person: str, label: str) -> List[cp_model.BoolVar]:
+    def person_history(self, person: str, label: str) -> List[cp_model.IntVar]:
         """Mengambil riwayat variabel dari hari ke hari untuk satu orang dan satu label."""
         result = []
         person_days = self._vars.get(person, {})
@@ -95,7 +96,7 @@ class VariableStore:
 class SolverResult:
     """Hasil akhir dari eksekusi CP-SAT."""
     status: int
-    assignments: Dict[str, Dict[int, str]]  # person -> day -> label terisi
+    assignments: Dict[str, Dict[int, str]]
     objective_value: float
     solve_time_seconds: float
 
