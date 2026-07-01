@@ -1,122 +1,204 @@
 """
 config.py
 
-Global configuration for BSB Schedule Solver v2
+Global configuration for BSB Schedule Solver.
+
+Author  : Zacky Aji Pangestu
+Version : 2.0.0
+Python  : 3.12+
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# ============================================================
+# Application
+# ============================================================
 
-# ==========================================================
-# APP
-# ==========================================================
+APP_NAME: str = "BSB Schedule Solver"
+VERSION: str = "2.0.0"
 
-APP_NAME = "BSB Schedule Solver"
-VERSION = "2.0.0"
+# ============================================================
+# Root Path
+# ============================================================
 
+ROOT_DIR: Path = Path(__file__).resolve().parent
 
-# ==========================================================
-# PATHS
-# ==========================================================
-
-ROOT_DIR = Path(__file__).resolve().parent
-
-INPUT_FILE = ROOT_DIR / "Rekap_Jaga_Gudang_BSB_Juli_2026.xlsx"
-OUTPUT_FILE = ROOT_DIR / "Rekap_Jaga_Gudang_BSB_Juli_2026_Final.xlsx"
-
-REPORT_TXT = ROOT_DIR / "report.txt"
-REPORT_CSV = ROOT_DIR / "report.csv"
-STATISTICS_FILE = ROOT_DIR / "statistics.xlsx"
+# ============================================================
+# File Configuration
+# ============================================================
 
 
-# ==========================================================
-# CONSTANTS
-# ==========================================================
+@dataclass(slots=True)
+class FileConfig:
+    """
+    Input / Output file configuration.
+    """
 
-LABELS = ("A", "B", "C")
+    input_excel: Path = ROOT_DIR / "Rekap_Jaga_Gudang_BSB_Juli_2026.xlsx"
 
-LOCK_VALUES = {"A", "B", "C"}
+    output_excel: Path = (
+        ROOT_DIR / "Rekap_Jaga_Gudang_BSB_Juli_2026_Final.xlsx"
+    )
 
-EMPTY_VALUES = {1, "1"}
+    report_txt: Path = ROOT_DIR / "report.txt"
 
-IGNORE_PERSONNEL = {"ECOM"}
+    report_csv: Path = ROOT_DIR / "report.csv"
+
+    statistics_excel: Path = ROOT_DIR / "statistics.xlsx"
 
 
-# ==========================================================
-# EXCEL
-# ==========================================================
+# ============================================================
+# Excel Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class ExcelConfig:
+    """
+    Excel parser configuration.
+    """
 
-    sheet_name: str = "Rekap Jaga Juli 2026"
+    auto_detect_sheet: bool = True
+
+    sheet_name: str | None = None
+
+    auto_detect_header: bool = True
+
+    header_row: int = 4
+
+    personnel_column: int = 1
 
     first_day_column: int = 2
 
     last_day_column: int = 32
 
-    personnel_column: int = 1
+    auto_detect_personnel: bool = True
 
-    auto_detect_sheet: bool = True
+    auto_detect_days: bool = True
 
 
-# ==========================================================
-# SOLVER
-# ==========================================================
+# ============================================================
+# Label Configuration
+# ============================================================
+
+
+@dataclass(slots=True)
+class LabelConfig:
+    """
+    Assignment labels.
+    """
+
+    labels: tuple[str, ...] = (
+        "A",
+        "B",
+        "C",
+    )
+
+    lock_values: set[str] = field(
+        default_factory=lambda: {
+            "A",
+            "B",
+            "C",
+        }
+    )
+
+    empty_values: set = field(
+        default_factory=lambda: {
+            1,
+            "1",
+        }
+    )
+
+
+# ============================================================
+# Personnel Configuration
+# ============================================================
+
+
+@dataclass(slots=True)
+class PersonnelConfig:
+    """
+    Personnel settings.
+    """
+
+    ignored_personnel: set[str] = field(
+        default_factory=lambda: {
+            "ECOM",
+        }
+    )
+
+
+# ============================================================
+# Solver Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class SolverConfig:
+    """
+    Google OR-Tools CP-SAT configuration.
+    """
 
-    max_solver_time: int = 300
+    max_time_seconds: int = 300
 
-    num_workers: int = 8
+    num_search_workers: int = 8
 
     random_seed: int = 12345
 
     log_search_progress: bool = False
 
+    enumerate_all_solutions: bool = False
 
-# ==========================================================
-# HARD CONSTRAINTS
-# ==========================================================
+
+# ============================================================
+# Constraint Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class ConstraintConfig:
+    """
+    Enable / Disable hard constraints.
+    """
 
-    daily_abc: bool = True
+    enable_daily_abc: bool = True
 
-    locked_cells: bool = True
+    enable_locked_cells: bool = True
 
-    no_repeat: bool = True
+    enable_no_repeat: bool = True
 
-    no_abab: bool = True
+    enable_no_abab: bool = True
 
-    no_acac: bool = True
+    enable_no_acac: bool = True
 
-    no_bcbc: bool = True
+    enable_no_bcbc: bool = True
 
-    one_label_per_person: bool = True
+    enable_single_label: bool = True
 
-    one_person_per_label: bool = True
+    enable_single_person: bool = True
 
 
-# ==========================================================
-# SOFT CONSTRAINTS
-# ==========================================================
+# ============================================================
+# Objective Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class ObjectiveConfig:
+    """
+    Soft constraints.
+    """
 
     weekly_c_limit: int = 1
 
-    balance_labels: bool = True
+    enable_balance: bool = True
 
-    spread_c: bool = True
+    enable_spread_c: bool = True
 
-    avoid_long_cycle: bool = True
-
-    preferred_pattern: bool = True
+    enable_preferred_pattern: bool = True
 
     weight_weekly_c: int = 100
 
@@ -124,35 +206,41 @@ class ObjectiveConfig:
 
     weight_pattern: int = 5
 
+    weight_spread_c: int = 10
 
-# ==========================================================
-# CALENDAR
-# ==========================================================
+
+# ============================================================
+# Calendar Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class CalendarConfig:
+    """
+    Calendar weeks.
+    """
 
-    weeks: dict[int, range] = field(default_factory=lambda: {
-
-        1: range(1, 6),
-
-        2: range(6, 13),
-
-        3: range(13, 20),
-
-        4: range(20, 27),
-
-        5: range(27, 32),
-
-    })
+    weeks: dict[int, range] = field(
+        default_factory=lambda: {
+            1: range(1, 6),
+            2: range(6, 13),
+            3: range(13, 20),
+            4: range(20, 27),
+            5: range(27, 32),
+        }
+    )
 
 
-# ==========================================================
-# REPORT
-# ==========================================================
+# ============================================================
+# Report Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class ReportConfig:
+    """
+    Report settings.
+    """
 
     generate_txt: bool = True
 
@@ -160,35 +248,71 @@ class ReportConfig:
 
     generate_statistics: bool = True
 
+    include_validation: bool = True
 
-# ==========================================================
-# DEBUG
-# ==========================================================
+
+# ============================================================
+# Debug Configuration
+# ============================================================
+
 
 @dataclass(slots=True)
 class DebugConfig:
+    """
+    Debug settings.
+    """
 
     enabled: bool = False
 
+    print_solver_statistics: bool = False
+
     print_constraints: bool = False
 
-    print_solver_stats: bool = False
+    print_objectives: bool = False
+
+    save_cp_model: bool = False
 
 
-# ==========================================================
-# GLOBAL CONFIG
-# ==========================================================
+# ============================================================
+# Global Config
+# ============================================================
 
-excel = ExcelConfig()
 
-solver = SolverConfig()
+@dataclass(slots=True)
+class AppConfig:
+    """
+    Root application configuration.
+    """
 
-constraints = ConstraintConfig()
+    files: FileConfig = field(default_factory=FileConfig)
 
-objective = ObjectiveConfig()
+    excel: ExcelConfig = field(default_factory=ExcelConfig)
 
-calendar = CalendarConfig()
+    labels: LabelConfig = field(default_factory=LabelConfig)
 
-report = ReportConfig()
+    personnel: PersonnelConfig = field(default_factory=PersonnelConfig)
 
-debug = DebugConfig()
+    solver: SolverConfig = field(default_factory=SolverConfig)
+
+    constraints: ConstraintConfig = field(
+        default_factory=ConstraintConfig
+    )
+
+    objective: ObjectiveConfig = field(
+        default_factory=ObjectiveConfig
+    )
+
+    calendar: CalendarConfig = field(
+        default_factory=CalendarConfig
+    )
+
+    report: ReportConfig = field(
+        default_factory=ReportConfig
+    )
+
+    debug: DebugConfig = field(
+        default_factory=DebugConfig
+    )
+
+
+config = AppConfig()
