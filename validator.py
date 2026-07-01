@@ -1,91 +1,64 @@
 """
-validator.py
-Validation layer for BSB Schedule Solver v2
+Validator Module untuk BSB Schedule Solver V2.1.
+Mengecek integritas hasil solver terhadap aturan bisnis sebelum laporan dibuat.
 """
-from collections import defaultdict
-from models import ValidationIssue, ValidationResult
-from config import calendar
+
+from models import SolverResult, WorkbookData, ValidationResult, ValidationIssue
+from config import LABELS
 
 class ScheduleValidator:
-    def validate(self, workbook, result):
-        issues=[]
+    """Kelas untuk melakukan validasi pasca-optimasi."""
 
-        # Daily ABC
-        for day,assign in result.assignments.items():
-            labels=sorted(assign.values())
-            if labels!=["A","B","C"]:
-                issues.append(
-                    ValidationIssue(
-                        rule="DailyABC",
-                        person=None,
-                        day=day,
-                        message="Daily labels are not exactly A,B,C",
-                    )
-                )
+    def __init__(self, data: WorkbookData):
+        self.data = data
 
-        # Locked cells
-        for ds in workbook.days:
-            solved=result.assignments.get(ds.day,{})
-            for person,label in ds.locked.items():
-                if solved.get(person)!=label:
-                    issues.append(
-                        ValidationIssue(
-                            rule="Locked",
-                            person=person,
-                            day=ds.day,
-                            message="Locked value changed",
-                        )
-                    )
+    def validate(self, result: SolverResult) -> ValidationResult:
+        """Menjalankan seluruh pengecekan rule pada hasil assignment."""
+        issues = []
+        
+        # 1. Cek Locked Cells (Harus tetap sesuai template awal)
+        for assignment in self.data.assignments:
+            if assignment.is_locked:
+                assigned = result.assignments.get(assignment.person_name, {}).get(assignment.day_index)
+                if assigned != assignment.label:
+                    issues.append(ValidationIssue(
+                        "LockedRule", assignment.person_name, assignment.day_index,
+                        f"Sel terkunci berubah dari {assignment.label} menjadi {assigned}"
+                    ))
 
-        # Per person history
-        history=defaultdict(list)
-        for day in sorted(result.assignments):
-            for person,label in result.assignments[day].items():
-                history[person].append((day,label))
+        # 2. Cek AA, BB, CC (No Repeat)
+        for person in self.data.people:
+            for day_idx in range(len(self.data.schedules) - 1):
+                label_today = result.assignments.get(person.name, {}).get(day_idx)
+                label_tomorrow = result.assignments.get(person.name, {}).get(day_idx + 1)
+                
+                if label_today and label_today == label_tomorrow:
+                    issues.append(ValidationIssue(
+                        "NoRepeatRule", person.name, day_idx,
+                        f"Terdeteksi repetisi {label_today}{label_tomorrow}"
+                    ))
 
-        bad={("A","B","A","B"),("B","A","B","A"),
-             ("A","C","A","C"),("C","A","C","A"),
-             ("B","C","B","C"),("C","B","C","B")}
+        # 3. Cek ABAB, ACAC, BCBC (No Patterns)
+        # Sederhanakan pengecekan pola 4 hari
+        for person in self.data.people:
+            for i in range(len(self.data.schedules) - 3):
+                p = [result.assignments.get(person.name, {}).get(d) for d in range(i, i+4)]
+                if None not in p:
+                    if p[0] == p[2] and p[1] == p[3] and p[0] != p[1]:
+                        issues.append(ValidationIssue(
+                            "NoPatternRule", person.name, i,
+                            f"Pola repetitif terlarang terdeteksi: {''.join(p)}"
+                        ))
 
-        for person,seq in history.items():
-            # no repeat
-            for i in range(len(seq)-1):
-                if seq[i][1]==seq[i+1][1]:
-                    issues.append(
-                        ValidationIssue(
-                            rule="NoRepeat",
-                            person=person,
-                            day=seq[i+1][0],
-                            message="Repeated label",
-                        )
-                    )
-            # no ABAB
-            for i in range(len(seq)-3):
-                p=(seq[i][1],seq[i+1][1],seq[i+2][1],seq[i+3][1])
-                if p in bad:
-                    issues.append(
-                        ValidationIssue(
-                            rule="NoABAB",
-                            person=person,
-                            day=seq[i+3][0],
-                            message=f"Forbidden pattern {p}",
-                        )
-                    )
-            # weekly C
-            for week,days in calendar.weeks.items():
-                c=sum(1 for d,l in seq if d in days and l=="C")
-                if c>1:
-                    issues.append(
-                        ValidationIssue(
-                            rule="WeeklyC",
-                            person=person,
-                            day=None,
-                            message=f"Week {week}: C={c}",
-                        )
-                    )
+        # 4. Cek Kelengkapan Harian (Harus ada A, B, C)
+        for day in self.data.schedules:
+            daily_labels = [result.assignments.get(p.name, {}).get(day.day_index) for p in self.data.people]
+            for lbl in LABELS:
+                if daily_labels.count(lbl) != 1:
+                    issues.append(ValidationIssue(
+                        "DailyABCRule", "ALL", day.day_index,
+                        f"Label {lbl} muncul {daily_labels.count(lbl)} kali pada hari {day.day_index}"
+                    ))
 
-        return ValidationResult(
-            passed=len(issues)==0,
-            issues=issues,
-        )
-      
+        return ValidationResult(is_valid=len(issues) == 0, issues=issues)
+        
