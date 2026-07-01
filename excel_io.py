@@ -93,4 +93,190 @@ class ExcelIO:
             if v and str(v).strip().upper() == "NAMA / TANGGAL":
                 return r
         raise RuntimeError("Header 'NAMA / TANGGAL' tidak ditemukan.")
-        
+
+# === excel_io.py (Part 2) ===
+# Append this below Part 1
+
+    def _parse_schedule(
+        self,
+        people: dict[str, Person],
+        schedules: list[DaySchedule],
+    ) -> None:
+        """
+        Parse every assignment from Excel.
+        """
+
+        day_map = {d.day: d for d in schedules}
+
+        for column in range(
+            config.excel.first_day_column,
+            config.excel.last_day_column + 1,
+        ):
+
+            day = self.sheet.cell(
+                row=config.excel.header_row,
+                column=column,
+            ).value
+
+            if day not in day_map:
+                continue
+
+            schedule = day_map[day]
+
+            for person in people.values():
+
+                value = self.sheet.cell(
+                    row=person.row,
+                    column=column,
+                ).value
+
+                if value is None:
+                    continue
+
+                if value in config.labels.lock_values:
+
+                    schedule.personnel.append(person.name)
+                    schedule.locked[person.name] = value
+
+                    person.add_assignment(
+                        Assignment(
+                            day=day,
+                            label=value,
+                            locked=True,
+                        )
+                    )
+
+                elif value in config.labels.empty_values:
+
+                    schedule.personnel.append(person.name)
+                    schedule.empty.append(person.name)
+
+                    person.add_assignment(
+                        Assignment(
+                            day=day,
+                            label=None,
+                            locked=False,
+                        )
+                    )
+
+    def load(self) -> WorkbookData:
+
+        people = self._find_people()
+
+        schedules = self._find_days(people)
+
+        self._parse_schedule(
+            people,
+            schedules,
+        )
+
+        row_lookup = {
+            p.name: p.row
+            for p in people.values()
+        }
+
+        day_lookup = {
+            d.day: index
+            for index, d in enumerate(schedules)
+        }
+
+        return WorkbookData(
+            people=people,
+            schedules=schedules,
+            row_lookup=row_lookup,
+            day_lookup=day_lookup,
+        )
+
+# === excel_io.py (Part 3) ===
+# Append below Part 2
+
+from openpyxl.styles import Alignment
+
+
+class ExcelWriter:
+    """
+    Write solver result back to Excel.
+    """
+
+    def __init__(self, reader: ExcelReader):
+        self.reader = reader
+        self.workbook = reader.workbook
+        self.sheet = reader.sheet
+
+    def save(self, result) -> None:
+
+        for day, assignments in result.assignments.items():
+
+            column = (
+                config.excel.first_day_column
+                + day
+                - 1
+            )
+
+            for person, label in assignments.items():
+
+                row = result.row_lookup[person]
+
+                self.sheet.cell(
+                    row=row,
+                    column=column,
+                ).value = label
+
+        self._format_sheet()
+
+        self.workbook.save(
+            config.files.output_excel
+        )
+
+    def _format_sheet(self):
+
+        for column_cells in self.sheet.columns:
+
+            length = 0
+
+            letter = column_cells[0].column_letter
+
+            for cell in column_cells:
+
+                if cell.value is None:
+                    continue
+
+                length = max(
+                    length,
+                    len(str(cell.value)),
+                )
+
+                cell.alignment = Alignment(
+                    horizontal="center",
+                    vertical="center",
+                )
+
+            self.sheet.column_dimensions[
+                letter
+            ].width = max(10, length + 2)
+
+
+def load_workbook_data(
+    path=None,
+):
+    """
+    Convenience helper.
+    """
+
+    reader = ExcelReader(path)
+
+    return reader.load()
+
+
+def save_solver_result(
+    reader: ExcelReader,
+    result,
+):
+    """
+    Convenience helper.
+    """
+
+    writer = ExcelWriter(reader)
+
+    writer.save(result)
+    
